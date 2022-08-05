@@ -96,6 +96,10 @@ class SegmentAxisAlignmentWidget(ScriptedLoadableModuleWidget, VTKObservationMix
     self.ui.alignVolumeButton.clicked.connect(self.onAlignVolumeButtonClicked)
     self.ui.feedInputToStrengthModuleButton.clicked.connect(self.onFeedInputToStrengthModuleButtonClicked)
 
+    # Hide feed input to strength module button if the module is not present
+    if not hasattr(slicer.modules, 'vertebralstrengthcalculation'):
+      self.ui.feedInputToStrengthModuleButton.visible = False
+
     # Make sure parameter node is initialized (needed for module reload)
     self.initializeParameterNode()
 
@@ -223,8 +227,7 @@ class SegmentAxisAlignmentWidget(ScriptedLoadableModuleWidget, VTKObservationMix
     # Enable feeding input to analysis module if alignment is done for both the segment and the volume
     volumeAligned = False
     if outputVolumeNode:
-      if outputVolumeNode.GetName()[:len(self.logic.alignedVolumeNamePrefix)] == self.logic.alignedVolumeNamePrefix \
-          and outputVolumeNode.GetImageData() and outputVolumeNode.GetImageData().GetDimensions()[0] > 0:
+      if outputVolumeNode.GetImageData() and outputVolumeNode.GetImageData().GetDimensions()[0] > 0:
         volumeAligned = True
     self.ui.feedInputToStrengthModuleButton.enabled = (alignmentComputed and volumeAligned)
 
