@@ -345,7 +345,7 @@ class SegmentAxisAlignmentLogic(ScriptedLoadableModuleLogic):
     if not parameterNode.GetParameter("SupersamplingFactor"):
       parameterNode.SetParameter("SupersamplingFactor", str(2))
     if not parameterNode.GetParameter("SubsampleAfterRotation"):
-      parameterNode.SetParameter("SubsampleAfterRotation", 'false')
+      parameterNode.SetParameter("SubsampleAfterRotation", 'true')
     if not parameterNode.GetParameter("OutputAlignmentAngleLR"):
       parameterNode.SetParameter("OutputAlignmentAngleLR", '')
     if not parameterNode.GetParameter("OutputAlignmentAnglePA"):
@@ -535,6 +535,15 @@ class SegmentAxisAlignmentLogic(ScriptedLoadableModuleLogic):
     # Give meaningful name to output volume if it was the default
     if self.isNodeNameDefault(outputVolumeNode):
       outputVolumeNode.SetName(f'{self.alignedVolumeNamePrefix}{inputVolumeNode.GetName()}_{segmentName}')
+
+    # Move transform and segmentation containing the aligned segment under the same parent as the aligned volume
+    shNode = slicer.mrmlScene.GetSubjectHierarchyNode()
+    outputVolumeItem = shNode.GetItemByDataNode(outputVolumeNode)
+    parentItem = shNode.GetItemParent(outputVolumeItem)
+    outputTransformItem = shNode.GetItemByDataNode(outputTransformNode)
+    shNode.SetItemParent(outputTransformItem, parentItem)
+    outputSegmentationItem = shNode.GetItemByDataNode(outputSegmentationNode)
+    shNode.SetItemParent(outputSegmentationItem, parentItem)
 
     # Trigger UI update
     parameterNode.Modified()
