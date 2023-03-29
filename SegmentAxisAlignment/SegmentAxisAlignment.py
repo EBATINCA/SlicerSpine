@@ -354,6 +354,10 @@ class SegmentAxisAlignmentLogic(ScriptedLoadableModuleLogic):
       parameterNode.SetParameter("SupersamplingFactor", '2')
     if not parameterNode.GetParameter("SubsampleAfterRotation"):
       parameterNode.SetParameter("SubsampleAfterRotation", 'true')
+    if not parameterNode.GetParameter("InitialAlignmentAngleLR"):
+      parameterNode.SetParameter("InitialAlignmentAngleLR", '0')
+    if not parameterNode.GetParameter("InitialAlignmentAnglePA"):
+      parameterNode.SetParameter("InitialAlignmentAnglePA", '0')
     if not parameterNode.GetParameter("OutputAlignmentAngleLR"):
       parameterNode.SetParameter("OutputAlignmentAngleLR", '')
     if not parameterNode.GetParameter("OutputAlignmentAnglePA"):
@@ -408,9 +412,9 @@ class SegmentAxisAlignmentLogic(ScriptedLoadableModuleLogic):
     #
     self.minimizer = vtk.vtkAmoebaMinimizer()
     self.minimizer.SetFunction(BoundingBoxMinimizerFunction)
-    self.minimizer.SetParameterValue("rotLR", 0)
+    self.minimizer.SetParameterValue("rotLR", float(parameterNode.GetParameter("InitialAlignmentAngleLR")))
     self.minimizer.SetParameterScale("rotLR", 4)
-    self.minimizer.SetParameterValue("rotPA", 0)
+    self.minimizer.SetParameterValue("rotPA", float(parameterNode.GetParameter("InitialAlignmentAnglePA")))
     if rotateAP:
       self.minimizer.SetParameterScale("rotPA", 4)
     else:
