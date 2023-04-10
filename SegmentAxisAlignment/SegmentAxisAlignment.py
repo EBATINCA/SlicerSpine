@@ -86,6 +86,7 @@ class SegmentAxisAlignmentWidget(ScriptedLoadableModuleWidget, VTKObservationMix
     self.ui.inputSegmentSelectorWidget.currentSegmentChanged.connect(self.onInputChanged)
     self.ui.outputTransformSelectorComboBox.currentNodeChanged.connect(self.updateParameterNodeFromGUI)
     self.ui.outputSegmentationSelector.currentNodeChanged.connect(self.updateParameterNodeFromGUI)
+    self.ui.checkBox_RotateAP.toggled.connect(self.updateParameterNodeFromGUI)
     self.ui.inputVolumeSelector.currentNodeChanged.connect(self.updateParameterNodeFromGUI)
     self.ui.supersamplingFactorSpinBox.valueChanged.connect(self.updateParameterNodeFromGUI)
     self.ui.subsampleAfterRotationCheckBox.toggled.connect(self.updateParameterNodeFromGUI)
@@ -190,6 +191,7 @@ class SegmentAxisAlignmentWidget(ScriptedLoadableModuleWidget, VTKObservationMix
     self.ui.inputSegmentSelectorWidget.setCurrentSegmentID(self._parameterNode.GetParameter("InputSegmentID"))
     self.ui.outputTransformSelectorComboBox.setCurrentNode(self._parameterNode.GetNodeReference("OutputTransform"))
     self.ui.outputSegmentationSelector.setCurrentNode(self._parameterNode.GetNodeReference("OutputSegmentationNode"))
+    self.ui.checkBox_RotateAP.checked = (self._parameterNode.GetParameter("RotateAP") == "true")
     self.ui.inputVolumeSelector.setCurrentNode(self._parameterNode.GetNodeReference("InputVolume"))
     self.ui.supersamplingFactorSpinBox.value = int(self._parameterNode.GetParameter("SupersamplingFactor"))
     self.ui.subsampleAfterRotationCheckBox.checked = (self._parameterNode.GetParameter("SubsampleAfterRotation") == "true")
@@ -253,6 +255,7 @@ class SegmentAxisAlignmentWidget(ScriptedLoadableModuleWidget, VTKObservationMix
     self._parameterNode.SetParameter("InputSegmentID", str(self.ui.inputSegmentSelectorWidget.currentSegmentID()))
     self._parameterNode.SetNodeReferenceID("OutputTransform", self.ui.outputTransformSelectorComboBox.currentNodeID)
     self._parameterNode.SetNodeReferenceID("OutputSegmentationNode", self.ui.outputSegmentationSelector.currentNodeID)
+    self._parameterNode.SetParameter("RotateAP", "true" if self.ui.checkBox_RotateAP.checked else "false")
     self._parameterNode.SetNodeReferenceID("InputVolume", self.ui.inputVolumeSelector.currentNodeID)
     self._parameterNode.SetParameter("SupersamplingFactor", str(self.ui.supersamplingFactorSpinBox.value))
     self._parameterNode.SetParameter("SubsampleAfterRotation", "true" if self.ui.subsampleAfterRotationCheckBox.checked else "false")
@@ -343,7 +346,7 @@ class SegmentAxisAlignmentLogic(ScriptedLoadableModuleLogic):
     Initialize parameter node with default settings.
     """
     if not parameterNode.GetParameter("SupersamplingFactor"):
-      parameterNode.SetParameter("SupersamplingFactor", str(2))
+      parameterNode.SetParameter("SupersamplingFactor", '2')
     if not parameterNode.GetParameter("SubsampleAfterRotation"):
       parameterNode.SetParameter("SubsampleAfterRotation", 'true')
     if not parameterNode.GetParameter("OutputAlignmentAngleLR"):
@@ -352,6 +355,8 @@ class SegmentAxisAlignmentLogic(ScriptedLoadableModuleLogic):
       parameterNode.SetParameter("OutputAlignmentAnglePA", '')
     if not parameterNode.GetParameter("SegmentCroppingPaddingMm"):
       parameterNode.SetParameter("SegmentCroppingPaddingMm", '1')
+    if not parameterNode.GetParameter("RotateAP"):
+      parameterNode.SetParameter("RotateAP", 'true')
 
   def calculateAlignmentAngles(self, parameterNode):
     """
@@ -372,6 +377,8 @@ class SegmentAxisAlignmentLogic(ScriptedLoadableModuleLogic):
     if not outputTransformNode:
       raise ValueError("Invalid output transform node given")
     outputSegmentationNode = parameterNode.GetNodeReference("OutputSegmentationNode")
+
+    rotateAP = (parameterNode.GetParameter("RotateAP") == "true")
 
     import time
     startTime = time.time()
@@ -397,14 +404,18 @@ class SegmentAxisAlignmentLogic(ScriptedLoadableModuleLogic):
     self.minimizer = vtk.vtkAmoebaMinimizer()
     self.minimizer.SetFunction(BoundingBoxMinimizerFunction)
     self.minimizer.SetParameterValue("rotLR", 0)
-    self.minimizer.SetParameterValue("rotPA", 0)
     self.minimizer.SetParameterScale("rotLR", 4)
-    self.minimizer.SetParameterScale("rotPA", 4)
+    self.minimizer.SetParameterValue("rotPA", 0)
+    if rotateAP:
+      self.minimizer.SetParameterScale("rotPA", 4)
+    else:
+      self.minimizer.SetParameterScale("rotPA", 0)
     self.minimizer.SetMaxIterations(120)
     self.minimizer.Minimize()
 
     angleLR = self.minimizer.GetParameterValue("rotLR")
-    anglePA = self.minimizer.GetParameterValue("rotPA")
+    if rotateAP:
+      anglePA = self.minimizer.GetParameterValue("rotPA")
 
     # Set angles to the output transform
     alignmentTransform = vtk.vtkTransform()
@@ -425,7 +436,8 @@ class SegmentAxisAlignmentLogic(ScriptedLoadableModuleLogic):
 
     # Set result in parameter node
     parameterNode.SetParameter("OutputAlignmentAngleLR", str(angleLR))
-    parameterNode.SetParameter("OutputAlignmentAnglePA", str(anglePA))
+    if rotateAP:
+      parameterNode.SetParameter("OutputAlignmentAnglePA", str(anglePA))
 
     stopTime = time.time()
     logging.info(f'Finding alignment angles completed in {stopTime-startTime:.2f} seconds')
@@ -601,7 +613,7 @@ def BoundingBoxMinimizerFunction():
   # get the current rotation parameters
   rotLR = logic.minimizer.GetParameterValue("rotLR")
   rotPA = logic.minimizer.GetParameterValue("rotPA")
-  # logging.info(f'Debugging: Interation: {logic.minimizer.GetIterations()}: rotLR={rotLR:.2f}, rotPA={rotPA:.2f}')
+  logging.info(f'Debugging: Interation: {logic.minimizer.GetIterations()}: rotLR={rotLR:.2f}, rotPA={rotPA:.2f}')
 
   # compute the 4x4 transformation matrix for current angle values
   transform = vtk.vtkTransform()
