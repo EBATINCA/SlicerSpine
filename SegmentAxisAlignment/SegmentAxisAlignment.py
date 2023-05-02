@@ -368,7 +368,6 @@ class SegmentAxisAlignmentLogic(ScriptedLoadableModuleLogic):
       raise ValueError("Invalid parameter node given")
     inputSegmentationNode = parameterNode.GetNodeReference("InputSegmentationNode")
     inputSegmentID = parameterNode.GetParameter("InputSegmentID")
-    segmentName = inputSegmentationNode.GetSegmentation().GetSegment(inputSegmentID).GetName()
     if not inputSegmentationNode:
       raise ValueError("Invalid input segmentation node given")
     if inputSegmentID in [None, '']:
@@ -376,7 +375,6 @@ class SegmentAxisAlignmentLogic(ScriptedLoadableModuleLogic):
     outputTransformNode = parameterNode.GetNodeReference("OutputTransform")
     if not outputTransformNode:
       raise ValueError("Invalid output transform node given")
-    outputSegmentationNode = parameterNode.GetNodeReference("OutputSegmentationNode")
 
     rotateAP = (parameterNode.GetParameter("RotateAP") == "true")
 
@@ -417,7 +415,25 @@ class SegmentAxisAlignmentLogic(ScriptedLoadableModuleLogic):
     if rotateAP:
       anglePA = self.minimizer.GetParameterValue("rotPA")
 
-    # Set angles to the output transform
+    self.setAlignmentTransformAngles(parameterNode, angleLR, anglePA)
+
+    stopTime = time.time()
+    logging.info(f'Finding alignment angles completed in {stopTime-startTime:.2f} seconds')
+
+  def setAlignmentTransformAngles(self, parameterNode, angleLR, anglePA = 0.0):
+    """
+    Facilitate setting the alignment angles externally.
+    """
+    inputSegmentationNode = parameterNode.GetNodeReference("InputSegmentationNode")
+    inputSegmentID = parameterNode.GetParameter("InputSegmentID")
+    segmentName = inputSegmentationNode.GetSegmentation().GetSegment(inputSegmentID).GetName()
+    if not inputSegmentationNode:
+      raise ValueError("Invalid input segmentation node given")
+    outputTransformNode = parameterNode.GetNodeReference("OutputTransform")
+    if not outputTransformNode:
+      raise ValueError("Invalid output transform node given")
+    outputSegmentationNode = parameterNode.GetNodeReference("OutputSegmentationNode")
+
     alignmentTransform = vtk.vtkTransform()
     alignmentTransform.RotateZ(0.0)
     alignmentTransform.RotateY(anglePA)
@@ -436,11 +452,7 @@ class SegmentAxisAlignmentLogic(ScriptedLoadableModuleLogic):
 
     # Set result in parameter node
     parameterNode.SetParameter("OutputAlignmentAngleLR", str(angleLR))
-    if rotateAP:
-      parameterNode.SetParameter("OutputAlignmentAnglePA", str(anglePA))
-
-    stopTime = time.time()
-    logging.info(f'Finding alignment angles completed in {stopTime-startTime:.2f} seconds')
+    parameterNode.SetParameter("OutputAlignmentAnglePA", str(anglePA))
 
   def cropAndAlignVolume(self, parameterNode):
     """
@@ -483,6 +495,7 @@ class SegmentAxisAlignmentLogic(ScriptedLoadableModuleLogic):
     #
 
     # Get aligned segment bounds
+    outputSegmentationNode.CreateClosedSurfaceRepresentation()  # Make sure there is a poly data representation
     inputSegmentPolyData = outputSegmentationNode.GetClosedSurfaceInternalRepresentation(inputSegmentID)
     transformFilter = vtk.vtkTransformPolyDataFilter()
     transformFilter.SetTransform(outputTransformNode.GetTransformToParent())
@@ -509,7 +522,6 @@ class SegmentAxisAlignmentLogic(ScriptedLoadableModuleLogic):
     while nextParentTransform is not None:
       currentParentTransform = nextParentTransform
       nextParentTransform = currentParentTransform.GetParentTransformNode()
-    inputVolumeTransformNode = currentParentTransform if currentParentTransform else inputVolumeNode
 
     # Create cropped volume (so that the higher quality resample step can use it as a reference volume)
     tempReferenceVolumeNode = slicer.mrmlScene.AddNewNodeByClass('vtkMRMLScalarVolumeNode', f'TempReferenceVolume')
