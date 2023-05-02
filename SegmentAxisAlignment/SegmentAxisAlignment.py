@@ -88,7 +88,6 @@ class SegmentAxisAlignmentWidget(ScriptedLoadableModuleWidget, VTKObservationMix
     self.ui.outputSegmentationSelector.currentNodeChanged.connect(self.updateParameterNodeFromGUI)
     self.ui.checkBox_RotateAP.toggled.connect(self.updateParameterNodeFromGUI)
     self.ui.inputVolumeSelector.currentNodeChanged.connect(self.updateParameterNodeFromGUI)
-    self.ui.supersamplingFactorSpinBox.valueChanged.connect(self.updateParameterNodeFromGUI)
     self.ui.subsampleAfterRotationCheckBox.toggled.connect(self.updateParameterNodeFromGUI)
     self.ui.outputVolumeSelector.currentNodeChanged.connect(self.updateParameterNodeFromGUI)
 
@@ -193,8 +192,6 @@ class SegmentAxisAlignmentWidget(ScriptedLoadableModuleWidget, VTKObservationMix
     self.ui.outputSegmentationSelector.setCurrentNode(self._parameterNode.GetNodeReference("OutputSegmentationNode"))
     self.ui.checkBox_RotateAP.checked = (self._parameterNode.GetParameter("RotateAP") == "true")
     self.ui.inputVolumeSelector.setCurrentNode(self._parameterNode.GetNodeReference("InputVolume"))
-    self.ui.supersamplingFactorSpinBox.value = int(self._parameterNode.GetParameter("SupersamplingFactor"))
-    self.ui.subsampleAfterRotationCheckBox.checked = (self._parameterNode.GetParameter("SubsampleAfterRotation") == "true")
     self.ui.outputVolumeSelector.setCurrentNode(self._parameterNode.GetNodeReference("OutputVolume"))
 
     # Update calculate button state and tooltip
@@ -262,8 +259,6 @@ class SegmentAxisAlignmentWidget(ScriptedLoadableModuleWidget, VTKObservationMix
     self._parameterNode.SetNodeReferenceID("OutputSegmentationNode", self.ui.outputSegmentationSelector.currentNodeID)
     self._parameterNode.SetParameter("RotateAP", "true" if self.ui.checkBox_RotateAP.checked else "false")
     self._parameterNode.SetNodeReferenceID("InputVolume", self.ui.inputVolumeSelector.currentNodeID)
-    self._parameterNode.SetParameter("SupersamplingFactor", str(self.ui.supersamplingFactorSpinBox.value))
-    self._parameterNode.SetParameter("SubsampleAfterRotation", "true" if self.ui.subsampleAfterRotationCheckBox.checked else "false")
     self._parameterNode.SetNodeReferenceID("OutputVolume", self.ui.outputVolumeSelector.currentNodeID)
 
     self._parameterNode.EndModify(wasModified)
@@ -350,10 +345,6 @@ class SegmentAxisAlignmentLogic(ScriptedLoadableModuleLogic):
     """
     Initialize parameter node with default settings.
     """
-    if not parameterNode.GetParameter("SupersamplingFactor"):
-      parameterNode.SetParameter("SupersamplingFactor", '2')
-    if not parameterNode.GetParameter("SubsampleAfterRotation"):
-      parameterNode.SetParameter("SubsampleAfterRotation", 'true')
     if not parameterNode.GetParameter("InitialAlignmentAngleLR"):
       parameterNode.SetParameter("InitialAlignmentAngleLR", '0')
     if not parameterNode.GetParameter("InitialAlignmentAnglePA"):
@@ -481,9 +472,7 @@ class SegmentAxisAlignmentLogic(ScriptedLoadableModuleLogic):
     # and as it is all done in one step, using interpolation for sampling the voxels to be rotated, no data loss occurs that we
     # could be able to mitigate with this supersampling/subsampling step.
 
-    supersamplingFactor = int(parameterNode.GetParameter("SupersamplingFactor"))
     segmentCroppingPaddingMm = float(parameterNode.GetParameter("SegmentCroppingPaddingMm"))
-    subsampleAfterRotation = (parameterNode.GetParameter("SubsampleAfterRotation") == "true")
 
     import time
     startTime = time.time()
@@ -522,36 +511,26 @@ class SegmentAxisAlignmentLogic(ScriptedLoadableModuleLogic):
       nextParentTransform = currentParentTransform.GetParentTransformNode()
     inputVolumeTransformNode = currentParentTransform if currentParentTransform else inputVolumeNode
 
-    # Temporarily apply transform to input volume
-    inputVolumeTransformNode.SetAndObserveTransformNodeID(outputTransformNode.GetID())
-
-    # Apply cropping and supersampling (to prevent data loss during rotation)
+    # Create cropped volume (so that the higher quality resample step can use it as a reference volume)
+    tempReferenceVolumeNode = slicer.mrmlScene.AddNewNodeByClass('vtkMRMLScalarVolumeNode', f'TempReferenceVolume')
     supersampleCropParams = slicer.vtkMRMLCropVolumeParametersNode()
     supersampleCropParams.SetInputVolumeNodeID(inputVolumeNode.GetID())
-    supersampleCropParams.SetOutputVolumeNodeID(outputVolumeNode.GetID())
+    supersampleCropParams.SetOutputVolumeNodeID(tempReferenceVolumeNode.GetID())
+    supersampleCropParams.SetInterpolationMode(1)  # Use nearest neighbor to make it fast
     supersampleCropParams.SetROINodeID(tempRoiNode.GetID())
-    supersampleCropParams.SetSpacingScalingConst(1.0 / supersamplingFactor)
     slicer.mrmlScene.AddNode(supersampleCropParams)
     cropLogic = slicer.modules.cropvolume.logic()
     cropLogic.Apply(supersampleCropParams)
     slicer.mrmlScene.RemoveNode(supersampleCropParams)
 
-    # Remove transform from input volume
-    inputVolumeTransformNode.SetAndObserveTransformNodeID(None)
+    # Resample input volume using the transform
+    resampleParameters = {'inputVolume': inputVolumeNode.GetID(), 'outputVolume': outputVolumeNode.GetID(),
+      'referenceVolume': tempReferenceVolumeNode.GetID(), 'transformationFile': outputTransformNode.GetID(), 'interpolationType': 'bs'}
+    slicer.cli.run(slicer.modules.resamplescalarvectordwivolume, None, resampleParameters, wait_for_completion=True)
 
-    # Subsample the rotated volume (if requested, off by default)
-    if subsampleAfterRotation:
-      subsampleCropParams = slicer.vtkMRMLCropVolumeParametersNode()
-      subsampleCropParams.SetInputVolumeNodeID(outputVolumeNode.GetID())
-      subsampleCropParams.SetOutputVolumeNodeID(outputVolumeNode.GetID())
-      subsampleCropParams.SetROINodeID(tempRoiNode.GetID())
-      subsampleCropParams.SetSpacingScalingConst(supersamplingFactor)
-      slicer.mrmlScene.AddNode(subsampleCropParams)
-      cropLogic.Apply(subsampleCropParams)
-      slicer.mrmlScene.RemoveNode(subsampleCropParams)
-
-    # Remove tempoarary ROI
+    # Remove tempoarary ROI and reference volume
     slicer.mrmlScene.RemoveNode(tempRoiNode)
+    slicer.mrmlScene.RemoveNode(tempReferenceVolumeNode)
 
     # Give meaningful name to output volume if it was the default
     if self.isNodeNameDefault(outputVolumeNode):
@@ -643,7 +622,6 @@ def BoundingBoxMinimizerFunction():
   bounds = transformedPolyData.GetBounds()
   volumeOfBoundingBox = (bounds[1] - bounds[0]) * (bounds[3] - bounds[2]) * (bounds[5] - bounds[4])
 
-  # Uncomment this for debugging; these IO operations may slow down processing considerably
   logic.minimizer.SetFunctionValue(volumeOfBoundingBox)
 
 
