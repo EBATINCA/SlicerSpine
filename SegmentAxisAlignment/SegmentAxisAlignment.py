@@ -613,7 +613,7 @@ def BoundingBoxMinimizerFunction():
   # get the current rotation parameters
   rotLR = logic.minimizer.GetParameterValue("rotLR")
   rotPA = logic.minimizer.GetParameterValue("rotPA")
-  logging.info(f'Debugging: Interation: {logic.minimizer.GetIterations()}: rotLR={rotLR:.2f}, rotPA={rotPA:.2f}')
+  # logging.debug(f'Debugging: Iteration: {logic.minimizer.GetIterations()}: rotLR={rotLR:.2f}, rotPA={rotPA:.2f}')
 
   # compute the 4x4 transformation matrix for current angle values
   transform = vtk.vtkTransform()
